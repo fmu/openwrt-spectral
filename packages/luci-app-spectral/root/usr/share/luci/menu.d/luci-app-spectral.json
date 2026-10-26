@@ -1,0 +1,13 @@
+{
+	"admin/status/spectral": {
+		"title": "Spectrum",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "spectral/waterfall"
+		},
+		"depends": {
+			"acl": [ "luci-app-spectral" ]
+		}
+	}
+}

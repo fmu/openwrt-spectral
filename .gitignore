@@ -1,0 +1,8 @@
+sdk/
+public/
+
+# Package binaries are normally build artifacts; the kmod feed binaries are
+# committed intentionally so the feed stays reproducible without a long kmod
+# build in CI.
+*.apk
+!feeds/kmods/**/*.apk

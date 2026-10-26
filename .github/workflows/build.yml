@@ -1,0 +1,155 @@
+name: build
+
+# Builds the userspace packages with the official OpenWrt 25.12.6 SDK, signs
+# both apk feed indexes with the repository's EC P-256 key (the signed index
+# covers every package checksum; OpenWrt's apk does not require per-package
+# signatures for a trusted index), and publishes everything to GitHub Pages
+# via the gh-pages branch.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      ARCH: arm_cortex-a7_neon-vfpv4
+      KVER: 6.12.112-1-1ef2780854971e23a655b05e5b5c3630
+      SIGN_KEY: ${{ github.workspace }}/.signing-key.pem
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential gawk gettext libncurses-dev \
+            libssl-dev python3 rsync unzip zlib1g-dev file wget curl zstd
+
+      - name: Fetch OpenWrt SDK
+        run: |
+          URL="https://downloads.openwrt.org/releases/25.12.6/targets/ipq40xx/generic/openwrt-sdk-25.12.6-ipq40xx-generic_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst"
+          curl -fsSL -o /tmp/sdk.tar.zst "$URL"
+          mkdir -p /tmp/sdk
+          tar --zstd -xf /tmp/sdk.tar.zst -C /tmp/sdk
+          mv /tmp/sdk/openwrt-sdk-* sdk
+          rm -f /tmp/sdk.tar.zst
+
+      - name: Prepare signing key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APK_SIGN_KEY:-}" ]; then
+            echo "::error::secret APK_SIGN_KEY is not set"
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$APK_SIGN_KEY" > "$SIGN_KEY"
+          openssl ec -in "$SIGN_KEY" -pubout -out /tmp/derived-pub.pem 2>/dev/null
+          if ! cmp -s /tmp/derived-pub.pem keys/openwrt-spectral.pem; then
+            echo "::error::APK_SIGN_KEY does not match keys/openwrt-spectral.pem"
+            diff -u keys/openwrt-spectral.pem /tmp/derived-pub.pem || true
+            exit 1
+          fi
+          echo "signing key matches keys/openwrt-spectral.pem"
+          rm -f /tmp/derived-pub.pem
+
+      - name: Fetch feeds
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update base luci
+          ./scripts/feeds install -a -p base
+          ./scripts/feeds install -a -p luci
+
+      - name: Add packages and configure
+        run: |
+          cp -rv packages/* sdk/package/
+          cd sdk
+          cat > .config <<'EOF'
+          CONFIG_ALL=n
+          CONFIG_ALL_KMODS=n
+          CONFIG_ALL_NONSHARED=n
+          CONFIG_PACKAGE_libubox=y
+          CONFIG_PACKAGE_libubus=y
+          CONFIG_PACKAGE_libblobmsg-json=y
+          CONFIG_PACKAGE_spectrald=y
+          CONFIG_PACKAGE_luci-app-spectral=y
+          EOF
+          rm -rf tmp
+          make defconfig
+          grep -E 'CONFIG_PACKAGE_(spectrald|luci-app-spectral)=' .config
+
+      - name: Build packages
+        working-directory: sdk
+        run: |
+          make -j"$(nproc)" package/feeds/base/libubox/compile V=s
+          make -j"$(nproc)" package/feeds/base/ubus/compile V=s
+          make -j"$(nproc)" package/spectrald/compile V=s
+          make -j"$(nproc)" package/luci-app-spectral/compile V=s
+
+      - name: Assemble and sign the site and apk feeds
+        run: |
+          set -euo pipefail
+          APK="$GITHUB_WORKSPACE/sdk/staging_dir/host/bin/apk"
+          mkdir -p "public/$ARCH" "public/kmods/$KVER" public/kmods/stock
+
+          # static site (index.html, style.css, favicon.svg, img/)
+          cp -r docs/. public/
+          install -m 0644 keys/openwrt-spectral.pem public/openwrt-spectral.pem
+
+          # userspace packages + signed feed index
+          cp -v "sdk/bin/packages/$ARCH/base/"spectrald-*.apk "public/$ARCH/"
+          cp -v "sdk/bin/packages/$ARCH/base/"luci-app-spectral-*.apk "public/$ARCH/"
+          ( cd "public/$ARCH" && \
+            "$APK" mkndx --allow-untrusted \
+              --sign-key "$SIGN_KEY" \
+              --output packages.adb *.apk )
+
+          # kernel-specific kmod feed (prebuilt binary committed under feeds/)
+          # the kmod keeps OpenWrt's packaging; the signed index covers its
+          # checksum.
+          test -n "$(ls feeds/kmods/$KVER/kmod-ath10k-ct-*.apk)" || \
+            { echo "kmod apk missing"; exit 1; }
+          cp -v "feeds/kmods/$KVER/"*.apk "public/kmods/$KVER/"
+          ( cd "public/kmods/$KVER" && \
+            "$APK" mkndx --allow-untrusted \
+              --sign-key "$SIGN_KEY" \
+              --output packages.adb *.apk )
+
+          # upstream kmod for recovery (not part of the index)
+          cp -v feeds/kmods/stock/*.apk public/kmods/stock/
+
+          # fill the package lists in the page
+          python3 scripts/fill-index.py "$ARCH" "$KVER"
+
+          # checksums for verification
+          ( cd public && sha256sum "$ARCH"/*.apk "kmods/$KVER"/*.apk \
+              kmods/stock/*.apk openwrt-spectral.pem > SHA256SUMS )
+
+          touch public/.nojekyll
+          echo "--- published tree ---"
+          find public -maxdepth 3 -type f | sort
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$SIGN_KEY"
+
+      - name: Publish to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
+          force_orphan: true
+          enable_jekyll: false

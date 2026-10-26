@@ -1,0 +1,15 @@
+{
+	"luci-app-spectral": {
+		"description": "Grant access to the ath10k spectrum analyzer",
+		"read": {
+			"ubus": {
+				"spectral": [ "status", "get" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"spectral": [ "start", "stop" ]
+			}
+		}
+	}
+}
