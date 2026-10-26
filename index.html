@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openwrt-spectral — ath10k FFT spectrum analyzer with LuCI</title>
+<meta name="description" content="Install an ath10k spectral-scan FFT waterfall and channel sweep on OpenWrt 25.12 from a signed apk feed: spectrald daemon, LuCI view, and an optional spectral-enabled kmod with recovery instructions.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05060a">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="openwrt-spectral">
+<meta property="og:title" content="openwrt-spectral — ath10k FFT spectrum analyzer with LuCI">
+<meta property="og:description" content="ath10k spectral-scan FFT waterfall and channel sweep for OpenWrt 25.12, with a LuCI view and apk feed.">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="openwrt-spectral — back to top">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <rect width="32" height="32" rx="8" fill="#0b0e15"/>
+        <g fill="#22d3ee">
+          <rect x="6"  y="17" width="2.4" height="9"  rx="1"/>
+          <rect x="10" y="13" width="2.4" height="13" rx="1"/>
+          <rect x="14" y="8"  width="2.4" height="18" rx="1"/>
+          <rect x="18" y="11" width="2.4" height="15" rx="1"/>
+          <rect x="22" y="15" width="2.4" height="11" rx="1"/>
+          <rect x="26" y="19" width="2.4" height="7"  rx="1"/>
+        </g>
+      </svg>
+      <span class="brand-text">spectral <span class="brand-sub">for OpenWrt</span></span>
+    </a>
+    <nav class="site-nav" aria-label="Sections">
+      <ul>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#kmod">Kernel module</a></li>
+        <li><a href="#screens">Screenshots</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="#sweep">Sweep</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="#source">Source</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="wrap">
+      <p class="eyebrow">openwrt-spectral · ath10k spectral scan</p>
+      <h1 id="hero-title">See the RF <span class="grad">around your router</span>.</h1>
+      <p class="lede">
+        <strong>spectrald</strong> reads the ath10k spectral-scan FFT engine from debugfs,
+        converts every frame to per-bin dBm and serves a live waterfall to
+        <strong>LuCI</strong>.  Two modes: a continuous waterfall of the serving channel,
+        and a <strong>channel sweep</strong> that scans 2.4 / 5&nbsp;GHz and stitches the
+        per-channel FFTs into a panorama.
+      </p>
+      <ul class="pills" aria-label="Project facts">
+        <li>OpenWrt 25.12 · apk</li>
+        <li>arm_cortex-a7_neon-vfpv4</li>
+        <li>ath10k · QCA4019</li>
+        <li>64–256 FFT bins</li>
+        <li>signed apk feed</li>
+        <li>MIT · kmod GPLv2</li>
+      </ul>
+      <p class="status-note"><span class="dot" aria-hidden="true"></span>
+        <span>CI builds and signs the feed from <code>main</code> with an ECDSA P-256
+        key; authorize the key once (see <a href="#install">Install</a>).  The spectral
+        kmod in the extra feed is tied to one kernel version — read the
+        <a href="#kmod">kernel module</a> section before enabling it.</span></p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#install">Install</a>
+        <a class="btn btn-secondary" href="#kmod">Enable spectral scan</a>
+        <a class="btn btn-ghost" href="#screens">Screenshots</a>
+        <a class="btn btn-ghost" href="https://github.com/fmu/openwrt-spectral" rel="noopener">View on GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+      <p class="hero-meta">
+        Target <strong>ipq40xx</strong> (armv7), OpenWrt 25.12.6, kernel 6.12.112
+        · not affiliated with Qualcomm or OpenWrt
+      </p>
+    </div>
+  </section>
+
+  <section id="what" aria-labelledby="what-title">
+    <div class="wrap">
+      <h2 id="what-title">What it is</h2>
+      <p class="section-lede">
+        Every 802.11ac Qualcomm Atheros radio can report FFT data from its baseband.
+        The ath10k driver exposes those frames in
+        <code>/sys/kernel/debug/ieee80211/phyX/ath10k/spectral_scan0</code> — but only
+        if it was built with <code>CONFIG_ATH10K_SPECTRAL</code>.  This project turns that
+        byte stream into a usable spectrum view.
+      </p>
+      <div class="grid">
+        <article class="card">
+          <h3>Live FFT waterfall</h3>
+          <p>64, 128 or 256 bins per frame, converted to dBm with the fft_eval-compatible
+          formula, aggregated into a colour waterfall with a max-hold trace.</p>
+        </article>
+        <article class="card">
+          <h3>Channel sweep</h3>
+          <p>Scans a channel list with <code>iw</code> and stitches the per-channel FFTs
+          into a single panorama — 2.4&nbsp;GHz ch 1–13, 5&nbsp;GHz ch 36–165, a fast
+          seven-window 5&nbsp;GHz preset, or a custom list.</p>
+        </article>
+        <article class="card">
+          <h3>ubus API</h3>
+          <p><code>spectral status/start/stop/get</code> returns JSON rows of u16 dBm
+          values.  The LuCI view is just one client; scripts can poll the same object.</p>
+        </article>
+        <article class="card">
+          <h3>Small daemon</h3>
+          <p>One small C binary under procd, no Python, no websocket, no extra web
+          server.  Idle when not scanning; stops itself 60&nbsp;s after the last poll.</p>
+        </article>
+        <article class="card">
+          <h3>LuCI view</h3>
+          <p>Canvas waterfall plus spectrum, auto dBm range, palette selection, and
+          mode/bins/radio controls under <strong>Status → Spectrum</strong>.</p>
+        </article>
+        <article class="card">
+          <h3>Reversible</h3>
+          <p>Stopping the scan writes <code>disable</code> to the driver and leaves the
+          radio on its serving channel.  Only the optional kmod replaces a stock file.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements" aria-labelledby="req-title">
+    <div class="wrap">
+      <h2 id="req-title">Requirements</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col">Requirement</th><th scope="col">Details</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">OpenWrt 25.12.x</th>
+              <td><code>apk</code>-based (apk-tools 3).  The packages are built against the
+              25.12.6 SDK; install on 25.12.x only.</td>
+            </tr>
+            <tr>
+              <th scope="row">Signed feed key</th>
+              <td>The feed index and packages are signed with the project's ECDSA P-256
+              key.  Authorize <code>openwrt-spectral.pem</code> in
+              <code>/etc/apk/keys/</code> once (one command below); then
+              <code>apk</code> verifies every download.</td>
+            </tr>
+            <tr>
+              <th scope="row">Architecture</th>
+              <td><code>arm_cortex-a7_neon-vfpv4</code>, target <code>ipq40xx/generic</code>.
+              This is the only architecture in the feed right now.</td>
+            </tr>
+            <tr>
+              <th scope="row">Spectral-enabled ath10k</th>
+              <td><strong>This is the one real prerequisite.</strong> The stock OpenWrt
+              <code>kmod-ath10k-ct</code> is built without <code>CONFIG_ATH10K_SPECTRAL</code>,
+              so <code>spectral_scan0</code> does not exist.  The
+              <a href="#kmod">extra feed</a> ships a rebuilt kmod for kernel
+              <code>6.12.112</code>; alternatively build your own image with
+              <code>CONFIG_PACKAGE_ATH_DEBUG=y</code> and
+              <code>CONFIG_PACKAGE_ATH_SPECTRAL=y</code>.</td>
+            </tr>
+            <tr>
+              <th scope="row">Kernel relay support</th>
+              <td><code>CONFIG_RELAY=y</code>.  Stock 25.12 kernels already have it, so a
+              kmod rebuild is enough — no kernel rebuild.</td>
+            </tr>
+            <tr>
+              <th scope="row">debugfs</th>
+              <td>Mounted at <code>/sys/kernel/debug</code> (the default on OpenWrt).</td>
+            </tr>
+            <tr>
+              <th scope="row">iw</th>
+              <td><code>iw</code> is used to trigger the per-channel scans in sweep mode.
+              It is normally installed; the daemon reports a clear error if it is missing.</td>
+            </tr>
+            <tr>
+              <th scope="row">LuCI (optional)</th>
+              <td><code>luci-base</code> for the web view.  The daemon and ubus API work
+              without LuCI.</td>
+            </tr>
+            <tr>
+              <th scope="row">Shell access</th>
+              <td>SSH as <code>root</code> for the install steps.</td>
+            </tr>
+            <tr>
+              <th scope="row">Disk</th>
+              <td>About <strong>200&nbsp;KB</strong> for the daemon and the LuCI app; the
+              kmod is about <strong>285&nbsp;KB</strong>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="preflight">Before you start</h3>
+      <figure class="cmd">
+        <pre><code># release + architecture (expect 25.12.x / arm_cortex-a7_neon-vfpv4)
+grep -E '^(DISTRIB_RELEASE|DISTRIB_ARCH)=' /etc/openwrt_release
+
+# kernel version (must match the kmod feed path)
+uname -r
+
+# does the spectral interface already exist?
+ls /sys/kernel/debug/ieee80211/phy*/ath10k/ 2>/dev/null</code></pre>
+      </figure>
+      <p class="fineprint">If the last command prints nothing, install the spectral kmod
+      from the <a href="#kmod">extra feed</a> first.</p>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-title">
+    <div class="wrap">
+      <h2 id="install-title">Install</h2>
+      <p class="section-lede">
+        Run these on the router over SSH.  The feed is a static apk repository served by
+        GitHub Pages; its indexes are <strong>signed</strong> with the project's ECDSA P-256
+        key, so package checksums are covered.  Authorize the key once and
+        <code>apk</code> verifies every download — no <code>--allow-untrusted</code> needed.
+      </p>
+
+      <h3 id="quick-install">Quick install</h3>
+      <figure class="cmd">
+        <pre><code>wget -O /etc/apk/keys/openwrt-spectral.pem \
+  "https://fmu.github.io/openwrt-spectral/openwrt-spectral.pem"
+echo "https://fmu.github.io/openwrt-spectral/arm_cortex-a7_neon-vfpv4/packages.adb" &gt;&gt; /etc/apk/repositories.d/customfeeds.list
+apk update
+apk add --upgrade spectrald luci-app-spectral</code></pre>
+      </figure>
+      <p>Then open <strong>LuCI → Status → Spectrum</strong>.  For a CLI-only setup install
+      just <code>spectrald</code>.</p>
+
+      <ul class="pills" aria-label="Packages in the feed">
+                <li><code>luci-app-spectral-1.0-r4.apk</code></li>
+        <li><code>spectrald-1.0-r3.apk</code></li>
+
+      </ul>
+
+      <h3>Step by step</h3>
+      <ol class="steps">
+        <li>
+          <h4>Authorize the signing key</h4>
+          <p>The feed's index and packages are signed.  Install the public key in
+          <code>/etc/apk/keys/</code>; its filename must keep the <code>.pem</code>
+          suffix:</p>
+          <figure class="cmd">
+            <pre><code>wget -O /etc/apk/keys/openwrt-spectral.pem \
+  "https://fmu.github.io/openwrt-spectral/openwrt-spectral.pem"</code></pre>
+          </figure>
+        </li>
+        <li>
+          <h4>Add the repository</h4>
+          <p>OpenWrt keeps extra repositories in
+          <code>/etc/apk/repositories.d/*.list</code>; append the index URL:</p>
+          <figure class="cmd">
+            <pre><code>echo "https://fmu.github.io/openwrt-spectral/arm_cortex-a7_neon-vfpv4/packages.adb" &gt;&gt; /etc/apk/repositories.d/customfeeds.list</code></pre>
+          </figure>
+        </li>
+        <li>
+          <h4>Refresh and install</h4>
+          <figure class="cmd">
+            <pre><code>apk update
+apk add --upgrade spectrald luci-app-spectral</code></pre>
+          </figure>
+          <p class="fineprint">If <code>apk</code> reports an untrusted signature, the
+          key from step&nbsp;1 is missing or in the wrong place.</p>
+        </li>
+        <li>
+          <h4>Check the daemon</h4>
+          <figure class="cmd">
+            <pre><code>ubus call spectral status
+# expected: {"ok":true,"running":false,...}
+
+ls /sys/kernel/debug/ieee80211/phy*/ath10k/spectral_scan0   # after the kmod is installed
+</code></pre>
+          </figure>
+        </li>
+      </ol>
+
+      <h3 id="trust">Signature &amp; trust</h3>
+      <p>Both feed indexes are signed with the project's ECDSA P-256 key; <code>apk</code>
+      verifies each package against the checksums covered by the signed index.  The
+      public key is served next to the <code>.adb</code> index:</p>
+      <figure class="cmd">
+        <pre><code>wget -O /etc/apk/keys/openwrt-spectral.pem \
+  "https://fmu.github.io/openwrt-spectral/openwrt-spectral.pem"
+sha256sum /etc/apk/keys/openwrt-spectral.pem
+# expect: a5106a64bdff0112e53a63bbc870fa2180c60800c2958a813c64b8e2d883c358</code></pre>
+      </figure>
+      <p class="fineprint">The private key exists only as a GitHub Actions secret; it is
+      not in the repository.  The same key is used for future feed builds.  If you prefer
+      to keep the key out of the router's global keyring, you can also pass
+      <code>--keys-dir</code> to a dedicated directory instead of installing it under
+      <code>/etc/apk/keys/</code>.</p>
+
+      <h3 id="remove-repo">Remove the repository and key</h3>
+      <figure class="cmd">
+        <pre><code>sed -i '\#fmu.github.io/openwrt-spectral#d' /etc/apk/repositories.d/customfeeds.list
+rm -f /etc/apk/keys/openwrt-spectral.pem
+apk update</code></pre>
+      </figure>
+      <p>The installed packages stay; use <code>apk del spectrald luci-app-spectral</code>
+      to remove them.</p>
+    </div>
+  </section>
+
+  <section id="kmod" aria-labelledby="kmod-title">
+    <div class="wrap">
+      <h2 id="kmod-title">Spectral-enabled kmod (extra feed)</h2>
+
+      <div class="callout warn">
+        <p><strong>Read this before installing.</strong> The kernel module replaces the
+        stock <code>kmod-ath10k-ct</code> package with a build that enables
+        <code>CONFIG_ATH10K_SPECTRAL</code>.  It is tied to <strong>one exact kernel
+        version</strong> (6.12.112 with OpenWrt's kernel ABI), is not an upstream OpenWrt
+        package, and can break Wi-Fi if the module or kernel do not match.  The kmod feed
+        index is signed with the same key as the main feed (authorize it first, see
+        <a href="#install">Install</a>).  Keep a way to reach the router over
+        <strong>Ethernet</strong> while testing, and read the
+        <a href="#kmod-recovery">recovery</a> steps first.</p>
+      </div>
+
+      <h3 id="kmod-why">Why a custom kmod is needed</h3>
+      <p>
+        OpenWrt only compiles the ath10k spectral code when
+        <code>CONFIG_PACKAGE_ATH_SPECTRAL</code> is set
+        (<code>package/kernel/mac80211/ath.mk</code>), and the stock image ships it
+        disabled.  The driver's <code>spectral.c</code> and the 10.4 WMI commands are
+        already present; the kernel side needs relayfs, which stock 25.12 kernels already
+        provide (<code>CONFIG_RELAY=y</code>).  So the fix is a kmod rebuild, not a kernel
+        rebuild.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Item</th><th scope="col">Value</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Kernel</th><td><code>6.12.112</code> (OpenWrt 25.12.6, ipq40xx)</td></tr>
+            <tr><th scope="row">Kernel ABI</th><td><code>6.12.112~1ef2780854971e23a655b05e5b5c3630-r1</code></td></tr>
+            <tr><th scope="row">Package</th><td><code>kmod-ath10k-ct-6.12.112.2025.12.01~bb84e159-r1</code> (regular buffers)</td></tr>
+            <tr><th scope="row">Driver source</th><td>OpenWrt <code>feeds/base/kernel/ath10k-ct</code> at <code>2025.12.01~bb84e159</code> (Candela CT driver)</td></tr>
+            <tr><th scope="row">Kernel dependency</th><td><code>kernel=6.12.112~1ef2780854971e23a655b05e5b5c3630-r1</code> — apk refuses a mismatch</td></tr>
+            <tr><th scope="row">SHA-256 (apk)</th><td><code>ca2aac7f96d2b018d54131fcf9702f26581266610a39f26bcaca59aa634d6c5e</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="kmod-install">Enable it</h3>
+      <ol class="steps">
+        <li>
+          <h4>Add the extra kmod feed</h4>
+          <figure class="cmd">
+            <pre><code>echo "https://fmu.github.io/openwrt-spectral/kmods/6.12.112-1-1ef2780854971e23a655b05e5b5c3630/packages.adb" &gt;&gt; /etc/apk/repositories.d/customfeeds.list</code></pre>
+          </figure>
+        </li>
+        <li>
+          <h4>Update and install the rebuilt kmod</h4>
+          <figure class="cmd">
+            <pre><code>apk update
+apk add --upgrade kmod-ath10k-ct</code></pre>
+          </figure>
+          <p>Only install this on kernel <code>6.12.112</code> with the ABI above.  On a
+          different kernel the dependency check fails — do not force it.</p>
+          <ul class="pills" aria-label="Packages in the kmod feed">
+                    <li><code>kmod-ath10k-ct-6.12.112.2025.12.01~bb84e159-r1.apk</code></li>
+
+          </ul>
+        </li>
+        <li>
+          <h4>Reboot</h4>
+          <figure class="cmd">
+            <pre><code>reboot</code></pre>
+          </figure>
+          <p>Do <strong>not</strong> unload/reload the ath10k modules while hostapd is
+          running.  In testing, a hot <code>rmmod</code>/<code>insmod</code> left the
+          5&nbsp;GHz AP unable to start until a reboot (2.4&nbsp;GHz kept working).  A
+          reboot loads the module cleanly.</p>
+        </li>
+        <li>
+          <h4>Verify</h4>
+          <figure class="cmd">
+            <pre><code>ls /sys/kernel/debug/ieee80211/phy*/ath10k/spectral_scan0
+iw dev | grep -E 'phy#|Interface|channel'
+ubus call spectral status</code></pre>
+          </figure>
+        </li>
+      </ol>
+
+      <h3 id="kmod-recovery">Recovery: restore the upstream kmod</h3>
+      <p>If the Wi-Fi AP does not come back, restore the stock package and reboot.  A copy
+      of the official OpenWrt kmod is published next to the feed (same package, spectral
+      disabled):</p>
+      <figure class="cmd">
+        <pre><code>wget -O /tmp/kmod-stock.apk \
+  "https://fmu.github.io/openwrt-spectral/kmods/stock/kmod-ath10k-ct-official-6.12.112.2025.12.01~bb84e159-r1.apk"
+
+apk del kmod-ath10k-ct
+apk add /tmp/kmod-stock.apk
+reboot</code></pre>
+      <p class="fineprint">The stock kmod is signed by OpenWrt's release key, which a
+      standard image already trusts.  If your image does not have it, add
+      <code>--allow-untrusted</code> to that <code>apk add</code> (local file only).</p>
+      </figure>
+      <p class="fineprint">Official upstream copy:
+      <a href="https://downloads.openwrt.org/releases/25.12.6/targets/ipq40xx/generic/kmods/6.12.112-1-1ef2780854971e23a655b05e5b5c3630/kmod-ath10k-ct-6.12.112.2025.12.01~bb84e159-r1.apk" rel="noopener">downloads.openwrt.org kmods/6.12.112-1-1ef…/kmod-ath10k-ct-…</a>
+      · SHA-256: <code>b1f261de4da11583a77eea4dbe056b38188f15920804d85bb71383e78c335436</code>.</p>
+
+      <div class="callout note">
+        <p><strong>If Wi-Fi is down and SSH is unreachable:</strong> connect a computer to
+        a <strong>LAN port</strong> (Ethernet) and SSH to <code>192.168.1.1</code>, then run
+        the commands above.  If the router does not answer at all, boot into OpenWrt
+        <em>failsafe mode</em> (power-cycle and press the reset/failsafe button as
+        instructed by the bootloader) or reinstall the stock image with
+        <code>sysupgrade</code>.  Keeping a recent configuration backup is recommended
+        before touching kernel modules.</p>
+      </div>
+
+      <h3>Remove the kmod feed again</h3>
+      <figure class="cmd">
+        <pre><code>sed -i '\#fmu.github.io/openwrt-spectral/kmods#d' /etc/apk/repositories.d/customfeeds.list
+apk update</code></pre>
+      </figure>
+
+      <p class="fineprint">The kmod binary is a build of the GPLv2
+      <a href="https://github.com/greearb/ath10k-ct" rel="noopener">ath10k-ct</a> driver as
+      packaged by OpenWrt's <code>feeds/base/kernel/ath10k-ct</code>.  The build recipe is
+      in <code>feeds/kmods/README.md</code> in the repository; no kernel patches are
+      applied.  The daemon and LuCI app are MIT-licensed.</p>
+    </div>
+  </section>
+
+  <section id="screens" aria-labelledby="screens-title">
+    <div class="wrap">
+      <h2 id="screens-title">Example captures</h2>
+      <p class="section-lede">
+        Live FFT data from a QCA4019 radio, rendered by the same pipeline the LuCI view
+        draws (max-hold, turbo palette).  These are captures, not mock-ups.
+      </p>
+
+      <figure class="screenshot">
+        <img src="img/waterfall-5ghz.png" alt="5 GHz FFT waterfall: 256 bins over an 88 MHz span, noise floor with a narrow interferer" loading="lazy" width="1180" height="780">
+        <figcaption>5&nbsp;GHz serving-channel waterfall — 256 bins, 88&nbsp;MHz span,
+        ~9&nbsp;000 FFT frames.  The vertical line is a narrowband interferer.</figcaption>
+      </figure>
+
+      <figure class="screenshot">
+        <img src="img/sweep-2ghz.png" alt="2.4 GHz channel sweep panorama from channel 1 to 13" loading="lazy" width="1180" height="780">
+        <figcaption>2.4&nbsp;GHz sweep — ch 1–13 stitched into one 2400–2484&nbsp;MHz
+        panorama.  The diagonal edge is the sweep progressing through the channel list.</figcaption>
+      </figure>
+
+      <figure class="screenshot">
+        <img src="img/sweep-5ghz.png" alt="5 GHz fast sweep panorama of seven 80 MHz windows" loading="lazy" width="1180" height="780">
+        <figcaption>5&nbsp;GHz fast sweep — seven 80&nbsp;MHz windows covering
+        5136–5868&nbsp;MHz.  Empty gaps are bands not covered by this preset.</figcaption>
+      </figure>
+
+      <figure class="screenshot">
+        <img src="img/daemon-5ghz.png" alt="spectrald ubus rows rendered as a 5 GHz waterfall" loading="lazy" width="1180" height="780">
+        <figcaption>Exactly what LuCI receives from <code>spectrald</code>: 28 ubus rows
+        × 256 bins, 100&nbsp;ms each, max-hold over a 2.7&nbsp;s 5&nbsp;GHz capture.</figcaption>
+      </figure>
+
+      <p class="fineprint">The spectrum trace above each waterfall is the max-hold;
+      colours are dBm with the same auto-range the LuCI view uses.</p>
+    </div>
+  </section>
+
+  <section id="usage" aria-labelledby="usage-title">
+    <div class="wrap">
+      <h2 id="usage-title">Usage</h2>
+      <p class="section-lede">The LuCI view is a client of the <code>spectral</code> ubus
+      object; everything can be scripted.</p>
+
+      <h3>Single channel</h3>
+      <figure class="cmd">
+        <pre><code># phy0 = 2.4 GHz, phy1 = 5 GHz (check `iw dev`)
+ubus call spectral start '{"phy":1,"bins":256}'   # 64/128/256 bins
+ubus call spectral status
+ubus call spectral get '{"cursor":0}'             # rows of u16 dBm+128
+ubus call spectral stop</code></pre>
+      </figure>
+
+      <h3 id="sweep">Channel sweep</h3>
+      <figure class="cmd">
+        <pre><code>ubus call spectral start '{"phy":0,"bins":64,"mode":"sweep","preset":"2g"}'
+ubus call spectral start '{"phy":1,"bins":256,"mode":"sweep","preset":"5g"}'
+ubus call spectral start '{"phy":1,"bins":256,"mode":"sweep","preset":"5g-fast"}'
+
+# custom channel list
+ubus call spectral start '{"phy":1,"bins":256,"mode":"sweep","freqs":"5180 5260 5500 5745 5825"}'</code></pre>
+      </figure>
+      <p>Presets: <code>2g</code> (ch 1–13, 64 bins), <code>5g</code> (ch 36–165,
+      256 bins), <code>5g-fast</code> (seven 80&nbsp;MHz windows).  Sweep mode briefly
+      takes the radio off-channel for each scan; expect small client hitches and lower
+      throughput while it runs.  The panorama rows fade (1&nbsp;dB per row) so the
+      waterfall shows the sweep in progress.</p>
+
+      <h3>LuCI</h3>
+      <p><strong>Status → Spectrum</strong>.  Pick <em>Mode</em> (single channel or a
+      sweep preset; the radio and FFT bins are selected automatically), press
+      <em>Start</em>, and adjust the dBm range or colour map as needed.  The daemon stops
+      itself 60&nbsp;s after the last poll.</p>
+
+      <h3>How it works</h3>
+      <ol class="flow" aria-label="FFT data path">
+        <li>ath10k firmware <span class="flow-sub">FFT / phyerr frames</span></li>
+        <li>driver <span class="flow-sub">spectral_scan0 relay, TLV records</span></li>
+        <li><code>spectrald</code> <span class="flow-sub">dBm conversion, 10 rows/s</span></li>
+        <li>ubus / rpcd <span class="flow-sub">JSON rows, admin ACL</span></li>
+        <li>LuCI canvas <span class="flow-sub">waterfall + spectrum</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="faq" aria-labelledby="faq-title">
+    <div class="wrap">
+      <h2 id="faq-title">Troubleshooting &amp; FAQ</h2>
+
+      <h3>There is no <code>spectral_scan0</code></h3>
+      <p>The running ath10k kmod was built without <code>CONFIG_ATH10K_SPECTRAL</code>.
+      Install the <a href="#kmod">spectral kmod</a> and reboot, or build your own image
+      with <code>CONFIG_PACKAGE_ATH_DEBUG=y</code> and
+      <code>CONFIG_PACKAGE_ATH_SPECTRAL=y</code> (and <code>CONFIG_PACKAGE_MAC80211_DEBUGFS=y</code>).
+      check <code>dmesg | grep ath10k</code> if it still does not appear.</p>
+
+      <h3><code>apk</code> says “UNTRUSTED signature”</h3>
+      <p>The repository key is not in <code>/etc/apk/keys/</code>.  Download
+      <code>openwrt-spectral.pem</code> from the site root into that directory (see
+      <a href="#trust">Signature &amp; trust</a>) and run <code>apk update</code> again.
+      The feed indexes are signed; <code>--allow-untrusted</code> should not be needed.  Only the local stock-recovery <code>.apk</code> may require it if your
+      image lacks OpenWrt's own release key.</p>
+
+      <h3>The kmod refuses to install</h3>
+      <p>Its dependency is the exact kernel
+      <code>6.12.112~1ef2780854971e23a655b05e5b5c3630-r1</code>.  If you upgraded the
+      kernel or run another OpenWrt release, the feed's kmod is the wrong build.  Do not
+      force it; build a matching kmod instead (recipe in the repository).</p>
+
+      <h3>The 5&nbsp;GHz AP did not come back after a manual module reload</h3>
+      <p>That is the known hot-reload failure mode: hostapd's AP vdev is left in an
+      inconsistent state (<code>Match already configured</code> /
+      <code>Failed to set beacon parameters</code>).  Reboot the router instead of
+      rmmod/insmod.  The module itself loads normally at boot.</p>
+
+      <h3>The waterfall is empty or only noise</h3>
+      <p>Check <code>ubus call spectral status</code>: <code>running</code> should be true,
+      <code>samples</code> should increase and <code>cols</code> should be non-zero.  A
+      very busy channel can reduce the sample rate.  For 80&nbsp;MHz channels use 128 or
+      256 bins — 64 bins is not valid at 80&nbsp;MHz.  The dBm values are firmware
+      estimates and can sit below the reported noise floor; the view auto-ranges.</p>
+
+      <h3>Does sweeping disconnect clients?</h3>
+      <p>It can cause brief interruptions: each scan takes the radio off its serving
+      channel for a short dwell.  Use single-channel mode for continuous monitoring of
+      your own channel; use the sweep when you need to look across channels.</p>
+
+      <h3>Does the daemon need to stay enabled?</h3>
+      <p>The procd service stays enabled but does nothing until <code>start</code> is
+      called, and it stops the scan after 60&nbsp;s without a <code>get</code> poll.
+      Disable it with <code>/etc/init.d/spectrald disable</code>.</p>
+    </div>
+  </section>
+
+  <section id="source" aria-labelledby="source-title">
+    <div class="wrap">
+      <h2 id="source-title">Source &amp; license</h2>
+      <p>
+        Source, package Makefiles and the feed build:
+        <a href="https://github.com/fmu/openwrt-spectral" rel="noopener">github.com/fmu/openwrt-spectral</a>.
+        The daemon and LuCI app are <strong>MIT</strong>.  The kmod is a build of the
+        GPLv2 <a href="https://github.com/greearb/ath10k-ct" rel="noopener">ath10k-ct</a>
+        driver as packaged by OpenWrt's base feed; its source links are recorded in
+        <code>feeds/kmods/README.md</code>.
+      </p>
+      <p class="fineprint">
+        ath10k spectral-scan documentation:
+        <a href="https://wireless.docs.kernel.org/en/latest/en/users/drivers/ath10k/spectral.html" rel="noopener">wireless.docs.kernel.org</a>
+        · reference userspace parser:
+        <a href="https://github.com/SimonWunderlich/FFT_eval" rel="noopener">FFT_eval</a>.
+        Not affiliated with Qualcomm Atheros or the OpenWrt project.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-main">
+      <p class="footer-brand"><strong>openwrt-spectral</strong> — ath10k FFT spectrum
+      analyzer for OpenWrt 25.12.  Kernel modules are kernel-version specific; read the
+      warnings before enabling the extra feed.</p>
+      <ul class="footer-links">
+        <li><a href="https://github.com/fmu/openwrt-spectral" rel="noopener">GitHub</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#kmod">Kernel module</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+    </div>
+    <p class="footer-meta">MIT licensed · feed built by GitHub Actions · no warranty</p>
+  </div>
+</footer>
+
+<p id="copy-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+<script>
+(function () {
+  var status = document.getElementById('copy-status');
+  function announce(msg) {
+    if (!status) return;
+    status.textContent = msg;
+    window.setTimeout(function () { status.textContent = ''; }, 2000);
+  }
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy') ? resolve() : reject();
+      } catch (err) {
+        reject(err);
+      }
+      document.body.removeChild(ta);
+    });
+  }
+  var figures = document.querySelectorAll('figure.cmd');
+  Array.prototype.forEach.call(figures, function (fig) {
+    var code = fig.querySelector('pre code');
+    if (!code) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy these commands to the clipboard');
+    btn.addEventListener('click', function () {
+      copyText(code.textContent).then(function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('is-copied');
+        announce('Commands copied to clipboard');
+        window.setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('is-copied');
+        }, 2000);
+      }, function () {
+        btn.textContent = 'Press Ctrl+C';
+        announce('Copy failed — the commands are selected, press Ctrl+C');
+      });
+    });
+    fig.classList.add('has-copy');
+    fig.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

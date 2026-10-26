@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="openwrt-spectral">
+  <defs>
+    <linearGradient id="spectrum" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset=".2" stop-color="#2563eb"/>
+      <stop offset=".4" stop-color="#06b6d4"/>
+      <stop offset=".6" stop-color="#22c55e"/>
+      <stop offset=".78" stop-color="#eab308"/>
+      <stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="#0b0e15"/>
+  <g fill="url(#spectrum)">
+    <rect x="6"  y="17" width="2.4" height="9"  rx="1"/>
+    <rect x="10" y="13" width="2.4" height="13" rx="1"/>
+    <rect x="14" y="8"  width="2.4" height="18" rx="1"/>
+    <rect x="18" y="11" width="2.4" height="15" rx="1"/>
+    <rect x="22" y="15" width="2.4" height="11" rx="1"/>
+    <rect x="26" y="19" width="2.4" height="7"  rx="1"/>
+  </g>
+</svg>

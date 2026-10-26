@@ -1,0 +1,5 @@
+f05b6bf3db7e56c74ac2b0babdfb5836f0caa185468cd419fc1ccc2a07b5d75d  arm_cortex-a7_neon-vfpv4/luci-app-spectral-1.0-r4.apk
+2193f6528aaf6808bb1de6420e6ad473b579dff295e30530e1b1d4bb209e36c0  arm_cortex-a7_neon-vfpv4/spectrald-1.0-r3.apk
+ca2aac7f96d2b018d54131fcf9702f26581266610a39f26bcaca59aa634d6c5e  kmods/6.12.112-1-1ef2780854971e23a655b05e5b5c3630/kmod-ath10k-ct-6.12.112.2025.12.01~bb84e159-r1.apk
+b1f261de4da11583a77eea4dbe056b38188f15920804d85bb71383e78c335436  kmods/stock/kmod-ath10k-ct-official-6.12.112.2025.12.01~bb84e159-r1.apk
+a5106a64bdff0112e53a63bbc870fa2180c60800c2958a813c64b8e2d883c358  openwrt-spectral.pem
